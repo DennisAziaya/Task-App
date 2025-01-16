@@ -1,6 +1,7 @@
+from datetime import datetime, timedelta, timezone
 from fastapi import Depends, Form, Path, Query
-from typing import Annotated, Optional
-from fastapi.security import OAuth2PasswordRequestForm
+from typing import Annotated, Optional, Union
+from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -10,10 +11,14 @@ from starlette import status
 from fastapi import APIRouter
 from models import User
 from passlib.context import CryptContext
+from jose import JWTError, jwt
 
 router = APIRouter()
 
-
+SECRET_KEY = "6cbe0b670af08c878039fc387a53d3273b07aca49d1855557fd27b1502dcd154"
+ALGORITHM = "HS256"
+DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 30
+oauth2_bearer = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 def get_db():
     db = SessionLocal()
@@ -21,7 +26,8 @@ def get_db():
         yield db
     finally:
         db.close()
-        
+
+
     
 db_dependency = Annotated[Session, Depends(get_db)]    
 
@@ -35,37 +41,65 @@ class CreateUserr(BaseModel):
     role: str
     
     
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user_id: int
+    role: str
+    
+    
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-class OAuth2EmailOrUsernamePasswordRequestForm:
-    def __init__(
-        self,
-        email_or_username: str = Form(..., description="Username or email"),
-        password: str = Form(...),
-    ):
-        self.email_or_username = email_or_username
-        self.password = password
-    
-
-
-def authenticate_user(email_or_username: str, password: str, db):
-    # user = db.query(User).filter(User.email == email).first()
-    user = db.query(User).filter((User.email == email_or_username) | (User.username == email_or_username)).first()
+def authenticate_user(username: str, password: str, db):
+    user = db.query(User).filter((User.email == username) | (User.username == username)).first()
     if not user:
         return False
     if not bcrypt_context.verify(password, user.hashed_password):
         return False
-    return True
+    return user
+
+
+
+def create_access_token(username: str, user_id: int,
+                        expires_delta: Optional[Union[timedelta, None]] = None):
+    
+    encode = {"sub": username, "id": user_id}
+    
+    # Set the expiration time
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        # Use default expiration time if expires_delta is not provided
+        expire = datetime.now(timezone.utc) + timedelta(minutes=DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    # Add expiration to the payload
+    encode.update({"exp": expire})
+    
+    # Generate the JWT token
+    token = jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+    return token
+
+
+def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        user_id: int = payload.get("id")
+        if username is None or user_id is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user")
+        return {"username": username, "id": user_id}
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user")
 
         
-@router.post("/login", status_code=status.HTTP_200_OK)
-# async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency):
-async def login(form_data: Annotated[OAuth2EmailOrUsernamePasswordRequestForm, Depends()], db: db_dependency):
-    user = authenticate_user(form_data.email_or_username, form_data.password, db)
+@router.post("/login", response_model=Token, status_code=status.HTTP_200_OK)
+async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency):
+    user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect username or password")
-    return {"message": "Succcess"}
+    token = create_access_token(form_data.username, user.id, timedelta(minutes=30))
+    return {"user_id": user.id, "role": user.role, "access_token": token, "token_type": "bearer"}
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

@@ -14,8 +14,9 @@ from router import auth, todos
 
 app = FastAPI()
 
+
 models.Base.metadata.create_all(engine)
 
-app.include_router(todos.router, prefix="/todos", tags=["todos"])
-app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(todos.router, prefix="/todos", tags=["Todos"])
+app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 
