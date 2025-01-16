@@ -28,11 +28,11 @@ class Todo(Base):
     
 # [
 #   {
-    # "description": "Milk, Bread, Eggs",
-    # "id": 2,
-    # "title": "Buy Groceries",
-    # "completed": false,
-    # "priority": 1
+#     "description": "Milk, Bread, Eggs",
+#     "id": 2,
+#     "title": "Buy Groceries",
+#     "completed": false,
+#     "priority": 1
 #   },
 #   {
 #     "description": "Vacuum and mop floors",
